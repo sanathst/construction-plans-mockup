@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Construction Plans - Page Allocation</title>
+<link rel="stylesheet" href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/styles/salesforce-lightning-design-system.min.css">
+<style>
+  body { margin: 0; background: #f4f6f9; }
+
+  /* Page grid */
+  .page-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    padding: 12px 16px;
+    overflow-y: auto;
+    max-height: calc(100vh - 230px);
+  }
+  .page-grid.list-view {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  /* Page card */
+  .page-card {
+    border: 2px solid #e5e5e5;
+    border-radius: 0.25rem;
+    overflow: hidden;
+    transition: border-color 0.12s, box-shadow 0.12s;
+    position: relative;
+    background: #fff;
+  }
+  .page-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .page-card.selected { border-color: #0176d3; box-shadow: 0 0 0 1px #0176d3; }
+  .page-card.excluded { opacity: 0.35; }
+  .page-card.excluded .page-thumb { filter: grayscale(1); pointer-events: none; }
+  .page-card.excluded .page-details { pointer-events: none; }
+
+  /* List view cards */
+  .page-grid.list-view .page-card {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid #e5e5e5;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+  }
+  .page-grid.list-view .page-card .page-thumb { width: 64px; height: 48px; min-height: 48px; flex-shrink: 0; border-radius: 0.25rem; border-bottom: none; }
+  .page-grid.list-view .page-card .page-details { display: flex; align-items: center; gap: 12px; flex: 1; padding: 0; }
+  .page-grid.list-view .page-card .page-check { position: static; }
+  .page-grid.list-view .page-number-badge { position: static; background: #ecebea; color: #514f4d; }
+
+  .page-check {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+  }
+  .page-check .slds-checkbox_faux { width: 18px; height: 18px; }
+
+  .page-number-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+  }
+
+  .page-thumb {
+    height: 140px;
+    background: #f3f3f3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    border-bottom: 1px solid #e5e5e5;
+  }
+  .page-thumb:hover { background: #ecebea; }
+  .page-thumb svg { width: 65%; height: 65%; opacity: 0.3; }
+
+  .page-details { padding: 8px 10px; }
+  .page-details .slds-form-element { margin-bottom: 4px; }
+  .page-details .slds-form-element__label { font-size: 11px; padding-bottom: 0; margin-bottom: 0; }
+  .page-details .slds-input, .page-details .slds-select {
+    font-size: 12px;
+    padding: 4px 8px;
+    height: 28px;
+    min-height: 28px;
+  }
+  .page-title-input {
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    padding: 4px 6px;
+    margin-bottom: 4px;
+    width: 100%;
+    outline: none;
+    background: transparent;
+  }
+  .page-title-input:hover { border-color: #c9c7c5; background: #fafaf9; }
+  .page-title-input:focus { border-color: #0176d3; background: #fff; box-shadow: 0 0 3px 0 #0176d3; }
+
+  /* Discipline dots */
+  .disc-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+  .disc-dot.Architectural { background: #2e844a; }
+  .disc-dot.Structural { background: #0176d3; }
+  .disc-dot.Electrical { background: #e3730c; }
+  .disc-dot.Mechanical { background: #8e33ff; }
+  .disc-dot.none { background: #c9c7c5; }
+
+  /* Summary bar */
+  .summary-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: #fff;
+    border-top: 1px solid #c9c7c5;
+    box-shadow: 0 -2px 4px rgba(0,0,0,0.07);
+    z-index: 50;
+  }
+  .summary-stats { display: flex; gap: 16px; font-size: 12px; color: #514f4d; flex-wrap: wrap; align-items: center; }
+  .summary-stats strong { color: #181818; }
+  .summary-stats .warn { color: #e3730c; font-weight: 700; }
+
+  /* Modal overrides */
+  .slds-modal__content.viewer-content {
+    background: #706e6b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 450px;
+    position: relative;
+    padding: 0;
+  }
+  .slds-modal__content.viewer-content svg { width: 50%; height: 50%; opacity: 0.2; }
+  .modal-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+  }
+  .modal-nav.prev { left: 12px; }
+  .modal-nav.next { right: 12px; }
+
+  /* Toast override */
+  .custom-toast {
+    position: fixed;
+    bottom: 70px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    z-index: 10000;
+    transition: transform 0.25s;
+  }
+  .custom-toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Toolbar tweaks */
+  .toolbar-section { padding: 8px 16px; border-bottom: 1px solid #c9c7c5; background: #fff; }
+
+  /* Mobile preview overlay */
+  .mobile-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .mobile-overlay.active { display: flex; }
+
+  .mobile-frame {
+    width: 390px;
+    height: 780px;
+    background: #fff;
+    border-radius: 40px;
+    box-shadow: 0 0 0 4px #181818, 0 20px 60px rgba(0,0,0,0.4);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .mobile-notch {
+    height: 44px;
+    background: #181818;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 6px;
+  }
+  .mobile-notch-pill {
+    width: 80px;
+    height: 6px;
+    background: #333;
+    border-radius: 3px;
+  }
+  .mobile-header {
+    background: #fff;
+    color: #181818;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #e5e5e5;
+  }
+  .mobile-header-back {
+    font-size: 20px;
+    cursor: pointer;
+    color: #0b827c;
+    background: none;
+    border: none;
+    padding: 0;
+    font-weight: 700;
+  }
+  .mobile-header h3 { font-size: 16px; font-weight: 700; margin: 0; flex: 1; text-align: center; }
+  .mobile-header-icons {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .mobile-header-icon {
+    font-size: 18px;
+    cursor: pointer;
+    color: #0b827c;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+
+  /* Mobile search bar */
+  .mobile-search {
+    padding: 8px 14px;
+    background: #fff;
+  }
+  .mobile-search-input {
+    width: 100%;
+    padding: 8px 12px 8px 32px;
+    border: 1px solid #c9c7c5;
+    border-radius: 8px;
+    font-size: 13px;
+    outline: none;
+    background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23706e6b' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.867-3.834zm-5.242.156a5 5 0 1 1 0-10 5 5 0 0 1 0 10z'/%3E%3C/svg%3E") 10px center no-repeat;
+  }
+  .mobile-search-input:focus { border-color: #0176d3; }
+  .mobile-search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mobile-filter-icon {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #c9c7c5;
+    border-radius: 8px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    color: #0b827c;
+    font-size: 16px;
+  }
+  .mobile-filter-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 16px;
+    height: 16px;
+    background: #0b827c;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+  }
+
+  /* Mobile records bar */
+  .mobile-records-bar {
+    padding: 6px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: #181818;
+  }
+  .mobile-records-bar strong { font-weight: 700; }
+  .mobile-sort-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #181818;
+    font-weight: 600;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+  .mobile-sort-arrow { color: #0b827c; font-size: 16px; }
+
+  /* Mobile scrollable area */
+  .mobile-plans-list {
+    flex: 1;
+    overflow-y: auto;
+    background: #f4f6f9;
+    padding: 0 0 8px;
+  }
+
+  /* Discipline section */
+  .mobile-disc-section {
+    background: #fff;
+    margin: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid #e5e5e5;
+    overflow: hidden;
+  }
+  .mobile-disc-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    cursor: pointer;
+    gap: 8px;
+    user-select: none;
+  }
+  .mobile-disc-header:hover { background: #fafaf9; }
+  .mobile-disc-chevron {
+    font-size: 14px;
+    color: #0b827c;
+    transition: transform 0.2s;
+    font-weight: 700;
+  }
+  .mobile-disc-chevron.collapsed { transform: rotate(-90deg); }
+  .mobile-disc-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #181818;
+    flex: 1;
+  }
+  .mobile-disc-count {
+    font-size: 14px;
+    font-weight: 400;
+    color: #706e6b;
+  }
+  .mobile-disc-menu {
+    font-size: 20px;
+    color: #706e6b;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0 4px;
+    line-height: 1;
+  }
+  .mobile-disc-body { padding: 0 10px 10px; }
+  .mobile-disc-body.collapsed { display: none; }
+
+  /* Plan card inside discipline section */
+  .mobile-plan-card {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    cursor: pointer;
+  }
+  .mobile-plan-card:last-child { margin-bottom: 0; }
+  .mobile-plan-card:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .mobile-plan-thumb {
+    width: 72px;
+    height: 72px;
+    background: #f3f3f3;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 1px solid #e5e5e5;
+  }
+  .mobile-plan-thumb svg { width: 48px; height: 48px; opacity: 0.35; }
+  .mobile-plan-info { flex: 1; min-width: 0; }
+  .mobile-plan-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #181818;
+    line-height: 1.3;
+    margin-bottom: 2px;
+  }
+  .mobile-plan-detail {
+    font-size: 11px;
+    color: #706e6b;
+    line-height: 1.5;
+  }
+  .mobile-plan-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-top: 4px;
+  }
+  .mobile-plan-badge.Architectural { background: #e3f5e1; color: #194e31; }
+  .mobile-plan-badge.Structural { background: #d8edff; color: #014486; }
+  .mobile-plan-badge.Electrical { background: #ffecd5; color: #7e3e01; }
+  .mobile-plan-badge.Mechanical { background: #eedcff; color: #5a1ba9; }
+  .mobile-plan-badge.Unassigned { background: #ecebea; color: #514f4d; }
+  .mobile-plan-menu {
+    font-size: 20px;
+    color: #706e6b;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0 2px;
+    line-height: 1;
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 2px;
+  }
+
+  .mobile-view-all {
+    text-align: left;
+    padding: 8px 14px 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #0176d3;
+    cursor: pointer;
+  }
+  .mobile-view-all:hover { text-decoration: underline; }
+
+  .mobile-bottom-bar {
+    height: 28px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-top: 1px solid #e5e5e5;
+  }
+  .mobile-bottom-pill {
+    width: 100px;
+    height: 4px;
+    background: #181818;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+<div class="slds-scope">
+
+<!-- Page Header -->
+<div class="slds-page-header" role="banner">
+  <div class="slds-page-header__row">
+    <div class="slds-page-header__col-title">
+      <div class="slds-media">
+        <div class="slds-media__figure">
+          <span class="slds-icon_container slds-icon-standard-document" title="Plans">
+            <svg class="slds-icon slds-page-header__icon" aria-hidden="true">
+              <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/standard-sprite/svg/symbols.svg#document"></use>
+            </svg>
+          </span>
+        </div>
+        <div class="slds-media__body">
+          <div class="slds-page-header__name">
+            <div class="slds-page-header__name-title">
+              <h1>
+                <span class="slds-page-header__title slds-truncate" title="Review Extracted Pages">Review Extracted Pages</span>
+              </h1>
+            </div>
+          </div>
+          <p class="slds-page-header__name-meta">Sunnyvale Solar Farm &bull; IFC_Sunnyvale_90pct.pdf &bull; Document Set: IFC Set - 90% Design</p>
+        </div>
+      </div>
+    </div>
+    <div class="slds-page-header__col-actions">
+      <div class="slds-page-header__controls">
+        <div class="slds-page-header__control">
+          <button class="slds-button slds-button_neutral" onclick="addPages()" title="For testing only. In production, all pages are populated from the uploaded PDF.">
+            <svg class="slds-button__icon slds-button__icon_left" aria-hidden="true" style="width:14px;height:14px;">
+              <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#add"></use>
+            </svg>
+            Add 5 Pages (Testing)
+          </button>
+        </div>
+        <div class="slds-page-header__control">
+          <button class="slds-button slds-button_neutral" onclick="toast('All changes discarded')">Cancel</button>
+        </div>
+        <div class="slds-page-header__control">
+          <button class="slds-button slds-button_brand" id="createBtn" onclick="showMobilePreview()">Create 6 Plans</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar-section">
+  <div class="slds-grid slds-grid_align-spread slds-grid_vertical-align-center slds-wrap" style="gap:8px;">
+    <div class="slds-col slds-no-flex">
+      <div class="slds-grid slds-grid_vertical-align-center" style="gap:12px;">
+        <!-- Select All -->
+        <div class="slds-form-element">
+          <div class="slds-form-element__control">
+            <div class="slds-checkbox">
+              <input type="checkbox" id="selectAll" checked onchange="toggleSelectAll()">
+              <label class="slds-checkbox__label" for="selectAll">
+                <span class="slds-checkbox_faux"></span>
+                <span class="slds-form-element__label" style="font-size:13px;">Select All</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <!-- Selected count badge -->
+        <span class="slds-badge slds-badge_lightest" id="selectedCount" style="white-space:nowrap;">54 selected</span>
+        <!-- View toggle -->
+        <div class="slds-button-group" role="group">
+          <button class="slds-button slds-button_icon slds-button_icon-border-filled slds-is-selected" id="gridViewBtn" onclick="setView('grid')" title="Grid View">
+            <svg class="slds-button__icon" aria-hidden="true" style="width:16px;height:16px;">
+              <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#layout"></use>
+            </svg>
+          </button>
+          <button class="slds-button slds-button_icon slds-button_icon-border-filled" id="listViewBtn" onclick="setView('list')" title="List View">
+            <svg class="slds-button__icon" aria-hidden="true" style="width:16px;height:16px;">
+              <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#rows"></use>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="slds-col slds-no-flex">
+      <div class="slds-grid slds-grid_vertical-align-center" style="gap:8px;">
+        <!-- Filter discipline -->
+        <div class="slds-form-element" style="margin-bottom:0;">
+          <div class="slds-form-element__control">
+            <div class="slds-select_container" style="min-width:140px;">
+              <select class="slds-select" onchange="filterByDiscipline(this.value)" style="font-size:12px;height:32px;">
+                <option value="all">All Disciplines</option>
+                <option value="Architectural">Architectural</option>
+                <option value="Structural">Structural</option>
+                <option value="Electrical">Electrical</option>
+                <option value="Mechanical">Mechanical</option>
+                <option value="">Unassigned</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <!-- Bulk assign discipline -->
+        <div class="slds-form-element" style="margin-bottom:0;">
+          <div class="slds-form-element__control">
+            <div class="slds-select_container" style="min-width:170px;">
+              <select class="slds-select" onchange="if(this.value) bulkDiscipline(this.value); this.selectedIndex=0;" style="font-size:12px;height:32px;">
+                <option value="">Bulk Assign Discipline...</option>
+                <option value="Architectural">Architectural</option>
+                <option value="Structural">Structural</option>
+                <option value="Electrical">Electrical</option>
+                <option value="Mechanical">Mechanical</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <!-- Bulk assign project -->
+        <div class="slds-form-element" style="margin-bottom:0;">
+          <div class="slds-form-element__control">
+            <div class="slds-select_container" style="min-width:170px;">
+              <select class="slds-select" onchange="if(this.value) bulkProject(this.value); this.selectedIndex=0;" style="font-size:12px;height:32px;">
+                <option value="">Bulk Assign Project...</option>
+                <option value="Sunnyvale Solar Farm">Sunnyvale Solar Farm</option>
+                <option value="East Bay Substation">East Bay Substation</option>
+                <option value="Fremont Data Center">Fremont Data Center</option>
+                <option value="San Jose Tower Site">San Jose Tower Site</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <!-- Exclude -->
+        <button class="slds-button slds-button_text-destructive" onclick="excludeSelected()" style="white-space:nowrap;">
+          <svg class="slds-button__icon slds-button__icon_left" aria-hidden="true" style="width:14px;height:14px;">
+            <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#close"></use>
+          </svg>
+          Exclude
+        </button>
+        <!-- Restore -->
+        <button class="slds-button slds-button_neutral" onclick="restoreExcluded()" style="white-space:nowrap;">
+          <svg class="slds-button__icon slds-button__icon_left" aria-hidden="true" style="width:14px;height:14px;">
+            <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#undo"></use>
+          </svg>
+          Restore Excluded
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Page Grid -->
+<div class="page-grid" id="pageGrid"></div>
+
+<!-- Summary Bar -->
+<div class="summary-bar">
+  <div class="summary-stats">
+    <span>Total: <strong id="totalCount">6</strong></span>
+    <span>Included: <strong id="inclCount">54</strong></span>
+    <span>Excluded: <strong id="exclCount">3</strong></span>
+    <span class="slds-m-left_small"><span class="disc-dot Architectural" style="margin-right:3px;"></span>Arch: <strong id="archCount">0</strong></span>
+    <span><span class="disc-dot Structural" style="margin-right:3px;"></span>Struct: <strong id="structCount">0</strong></span>
+    <span><span class="disc-dot Electrical" style="margin-right:3px;"></span>Elec: <strong id="elecCount">0</strong></span>
+    <span><span class="disc-dot Mechanical" style="margin-right:3px;"></span>Mech: <strong id="mechCount">0</strong></span>
+    <span class="warn" id="unassignedWarn">Unassigned: <strong id="unaCount">0</strong></span>
+  </div>
+  <div>
+    <button class="slds-button slds-button_brand" id="createBtn2" onclick="showMobilePreview()">Create Plans</button>
+  </div>
+</div>
+
+<!-- Viewer Modal (SLDS Modal) -->
+<section role="dialog" tabindex="-1" class="slds-modal" aria-modal="true" aria-labelledby="modal-heading-01" id="viewerModal">
+  <div class="slds-modal__container" style="max-width:850px;">
+    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" title="Close" onclick="closeModal()">
+      <svg class="slds-button__icon slds-button__icon_large" aria-hidden="true">
+        <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#close"></use>
+      </svg>
+      <span class="slds-assistive-text">Close</span>
+    </button>
+    <div class="slds-modal__header">
+      <h2 id="modal-heading-01" class="slds-modal__title slds-hyphenate" id="modalTitle">Page Preview</h2>
+    </div>
+    <div class="slds-modal__content viewer-content" id="modal-content-id-1">
+      <button class="slds-button slds-button_icon slds-button_icon-inverse modal-nav prev" onclick="modalNav(-1)" title="Previous">
+        <svg class="slds-button__icon" aria-hidden="true" style="width:24px;height:24px;">
+          <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#chevronleft"></use>
+        </svg>
+      </button>
+      <svg viewBox="0 0 120 120"><rect x="5" y="5" width="110" height="110" fill="none" stroke="#aaa"/><line x1="5" y1="22" x2="115" y2="22" stroke="#999"/><rect x="10" y="28" width="40" height="20" fill="none" stroke="#aaa"/><rect x="58" y="28" width="48" height="20" fill="none" stroke="#aaa"/><rect x="10" y="54" width="96" height="35" fill="none" stroke="#aaa"/><text x="60" y="108" text-anchor="middle" fill="#bbb" font-size="7" id="modalDrawLabel">Drawing</text></svg>
+      <button class="slds-button slds-button_icon slds-button_icon-inverse modal-nav next" onclick="modalNav(1)" title="Next">
+        <svg class="slds-button__icon" aria-hidden="true" style="width:24px;height:24px;">
+          <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#chevronright"></use>
+        </svg>
+      </button>
+    </div>
+    <div class="slds-modal__footer slds-grid slds-grid_align-spread slds-grid_vertical-align-center">
+      <span class="slds-text-body_small slds-text-color_weak" id="modalInfo">Page 1 of 57</span>
+      <div class="slds-button-group" role="group">
+        <button class="slds-button slds-button_neutral slds-button_small">
+          <svg class="slds-button__icon slds-button__icon_left" aria-hidden="true" style="width:12px;height:12px;">
+            <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#dash"></use>
+          </svg>Zoom Out
+        </button>
+        <button class="slds-button slds-button_neutral slds-button_small">Fit</button>
+        <button class="slds-button slds-button_neutral slds-button_small">
+          <svg class="slds-button__icon slds-button__icon_left" aria-hidden="true" style="width:12px;height:12px;">
+            <use xlink:href="https://unpkg.com/@salesforce-ux/design-system@2.24.5/assets/icons/utility-sprite/svg/symbols.svg#add"></use>
+          </svg>Zoom In
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="slds-backdrop" id="modalBackdrop"></div>
+
+<!-- Toast (SLDS style) -->
+<div class="custom-toast" id="toastEl">
+  <div class="slds-notify_container">
+    <div class="slds-notify slds-notify_toast slds-theme_info" role="status">
+      <div class="slds-notify__content">
+        <p class="slds-text-heading_small" id="toastMsg"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Mobile Preview Overlay -->
+<div class="mobile-overlay" id="mobileOverlay">
+  <div class="mobile-frame">
+    <div class="mobile-notch"><div class="mobile-notch-pill"></div></div>
+    <div class="mobile-header">
+      <button class="mobile-header-back" onclick="closeMobilePreview()">&#8592;</button>
+      <h3>Construction Plans</h3>
+      <div class="mobile-header-icons">
+        <button class="mobile-header-icon" title="Favorite">&#9734;</button>
+        <button class="mobile-header-icon" title="Add">&#43;</button>
+      </div>
+    </div>
+    <div class="mobile-search">
+      <div class="mobile-search-row">
+        <input class="mobile-search-input" type="text" placeholder="Search..." id="mobileSearch" oninput="renderMobilePlans()" style="flex:1;">
+        <div class="mobile-filter-icon" title="Filters" onclick="toggleMobileFilterPanel()">
+          &#8801;
+          <span class="mobile-filter-badge" id="mobileFilterBadge">2</span>
+        </div>
+      </div>
+      <div id="mobileFilterPanel" style="display:none; margin-top:8px;">
+        <select id="mobileProjectFilter" onchange="renderMobilePlans();updateMobileFilterBadge()" style="width:100%;padding:7px 10px;border:1px solid #c9c7c5;border-radius:6px;font-size:12px;outline:none;margin-bottom:4px;">
+          <option value="all">All Projects</option>
+        </select>
+        <select id="mobileDisciplineFilter" onchange="renderMobilePlans();updateMobileFilterBadge()" style="width:100%;padding:7px 10px;border:1px solid #c9c7c5;border-radius:6px;font-size:12px;outline:none;">
+          <option value="all">All Disciplines</option>
+          <option value="Architectural">Architectural</option>
+          <option value="Structural">Structural</option>
+          <option value="Electrical">Electrical</option>
+          <option value="Mechanical">Mechanical</option>
+          <option value="">Unassigned</option>
+        </select>
+      </div>
+    </div>
+    <div class="mobile-records-bar">
+      <span>Records: <strong id="mobileRecordCount">57</strong></span>
+      <button class="mobile-sort-btn">Sheet Number <span class="mobile-sort-arrow">&#8595;</span></button>
+    </div>
+    <div class="mobile-plans-list" id="mobilePlansList"></div>
+    <div class="mobile-bottom-bar"><div class="mobile-bottom-pill"></div></div>
+  </div>
+</div>
+
+</div><!-- end slds-scope -->
+
+<script>
+const disciplines = ['Architectural','Structural','Electrical','Mechanical'];
+const projects = ['Sunnyvale Solar Farm','East Bay Substation','Fremont Data Center','San Jose Tower Site'];
+const prefixes = {Architectural:'A',Structural:'S',Electrical:'E',Mechanical:'M'};
+const titles = {
+  Architectural:['COVER SHEET','SITE PLAN','ROOF PLAN 01','ROOF PLAN 02','FLOOR PLAN','ELEVATIONS','BUILDING SECTIONS','WALL SECTIONS','DETAILS 01','DETAILS 02','DOOR SCHEDULE','WINDOW SCHEDULE'],
+  Structural:['COVER SHEET','FOUNDATION PLAN','FRAMING PLAN 01','FRAMING PLAN 02','SECTIONS - 1"','SECTIONS - 2"','DETAILS 01','DETAILS 02','FOOTING SCHEDULE','COLUMN SCHEDULE'],
+  Electrical:['COVER SHEET','ONE-LINE DIAGRAM','PANEL SCHEDULE A','PANEL SCHEDULE B','LIGHTING PLAN 01','LIGHTING PLAN 02','POWER PLAN 01','POWER PLAN 02','FIRE ALARM PLAN','LOW VOLTAGE PLAN','RISER DIAGRAM','DETAILS 01','DETAILS 02','SPECS 01','SPECS 02','GROUNDING PLAN'],
+  Mechanical:['COVER SHEET','HVAC PLAN 01','HVAC PLAN 02','DUCTWORK SECTIONS','PIPING PLAN','EQUIPMENT SCHEDULE','DETAILS 01','CONTROL DIAGRAMS']
+};
+
+// All available page templates (flattened pool to draw from when adding pages)
+const allPageTemplates = [];
+for (const d of disciplines) {
+  for (let i = 0; i < titles[d].length; i++) {
+    const num = (101 + i).toString();
+    allPageTemplates.push({
+      title: `${prefixes[d]}-${num}: ${titles[d][i]}`,
+      docNum: `${prefixes[d]}-${num}`,
+      discipline: d,
+    });
+  }
+}
+
+// Start with only 6 pages, no project preselected
+const pages = [];
+const initialPages = [
+  { title: 'A-101: COVER SHEET', docNum: 'A-101', discipline: 'Architectural' },
+  { title: 'A-102: SITE PLAN', docNum: 'A-102', discipline: 'Architectural' },
+  { title: 'S-101: COVER SHEET', docNum: 'S-101', discipline: 'Structural' },
+  { title: 'S-102: FOUNDATION PLAN', docNum: 'S-102', discipline: 'Structural' },
+  { title: 'E-101: COVER SHEET', docNum: 'E-101', discipline: 'Electrical' },
+  { title: 'E-102: ONE-LINE DIAGRAM', docNum: 'E-102', discipline: 'Electrical' },
+];
+initialPages.forEach((p, i) => {
+  pages.push({
+    page: i + 1,
+    title: p.title,
+    docNum: p.docNum,
+    discipline: p.discipline,
+    project: '',
+    included: true,
+    selected: true,
+  });
+});
+let nextTemplateIdx = 6; // index into allPageTemplates for next batch
+
+function addPages() {
+  let added = 0;
+  for (let i = 0; i < 5; i++) {
+    if (nextTemplateIdx >= allPageTemplates.length) {
+      // Wrap around if we run out of templates
+      nextTemplateIdx = 0;
+    }
+    const t = allPageTemplates[nextTemplateIdx];
+    const pageNum = pages.length + 1;
+    pages.push({
+      page: pageNum,
+      title: t.title,
+      docNum: t.docNum,
+      discipline: t.discipline,
+      project: '',
+      included: true,
+      selected: true,
+    });
+    nextTemplateIdx++;
+    added++;
+  }
+  render();
+  toast(`Added ${added} pages (${pages.length} total)`);
+}
+
+let currentView = 'grid';
+let filterDisc = 'all';
+
+function setView(v) {
+  currentView = v;
+  const gridBtn = document.getElementById('gridViewBtn');
+  const listBtn = document.getElementById('listViewBtn');
+  gridBtn.classList.toggle('slds-is-selected', v==='grid');
+  listBtn.classList.toggle('slds-is-selected', v==='list');
+  render();
+}
+
+function filterByDiscipline(v) { filterDisc = v; render(); }
+
+function render() {
+  const grid = document.getElementById('pageGrid');
+  grid.className = 'page-grid' + (currentView === 'list' ? ' list-view' : '');
+  let html = '';
+  pages.forEach((p, i) => {
+    if (filterDisc !== 'all' && p.discipline !== filterDisc) return;
+
+    const cls = ['page-card'];
+    if (p.selected && p.included) cls.push('selected');
+    if (!p.included) cls.push('excluded');
+
+    const discDot = p.discipline ? p.discipline : 'none';
+    const svgVariant = getSvgVariant(i);
+    const checked = p.selected && p.included ? 'checked' : '';
+
+    html += `<div class="${cls.join(' ')}" id="pc-${i}">
+      <div class="page-check">
+        <div class="slds-checkbox">
+          <input type="checkbox" id="chk-${i}" ${checked} onclick="event.stopPropagation();togglePage(${i})">
+          <label class="slds-checkbox__label" for="chk-${i}">
+            <span class="slds-checkbox_faux"></span>
+            <span class="slds-form-element__label slds-assistive-text">Select</span>
+          </label>
+        </div>
+      </div>
+      <span class="slds-badge page-number-badge">Page ${p.page}</span>
+      <div class="page-thumb" onclick="openModal(${i})">${svgVariant}</div>
+      <div class="page-details">
+        <input class="page-title-input" value="${p.title}" onchange="pages[${i}].title=this.value" onclick="event.stopPropagation()">
+        <div class="slds-form-element">
+          <label class="slds-form-element__label" style="display:flex;align-items:center;gap:4px;">
+            <span class="disc-dot ${discDot}"></span> Discipline
+          </label>
+          <div class="slds-form-element__control">
+            <div class="slds-select_container">
+              <select class="slds-select" onchange="pages[${i}].discipline=this.value;updateCounts();render()" onclick="event.stopPropagation()">
+                <option value="" ${!p.discipline?'selected':''}>-- Select --</option>
+                ${disciplines.map(d=>`<option value="${d}" ${p.discipline===d?'selected':''}>${d}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="slds-form-element">
+          <label class="slds-form-element__label">Project</label>
+          <div class="slds-form-element__control">
+            <div class="slds-select_container">
+              <select class="slds-select" onchange="pages[${i}].project=this.value;render()" onclick="event.stopPropagation()">
+                <option value="" ${!p.project?'selected':''}>-- Select --</option>
+                ${projects.map(pr=>`<option value="${pr}" ${p.project===pr?'selected':''}>${pr}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="slds-form-element">
+          <label class="slds-form-element__label">Doc #</label>
+          <div class="slds-form-element__control">
+            <input type="text" class="slds-input" value="${p.docNum}" onclick="event.stopPropagation()" onchange="pages[${i}].docNum=this.value">
+          </div>
+        </div>
+      </div>
+    </div>`;
+  });
+  grid.innerHTML = html;
+  updateCounts();
+}
+
+function getSvgVariant(i) {
+  const variants = [
+    `<svg viewBox="0 0 80 80"><rect x="4" y="4" width="72" height="72" fill="none" stroke="#ddd"/><line x1="4" y1="18" x2="76" y2="18" stroke="#eee"/><rect x="8" y="22" width="28" height="14" fill="none" stroke="#ddd"/><rect x="42" y="22" width="28" height="14" fill="none" stroke="#ddd"/><rect x="8" y="42" width="62" height="20" fill="none" stroke="#ddd"/></svg>`,
+    `<svg viewBox="0 0 80 80"><rect x="4" y="4" width="72" height="72" fill="none" stroke="#ddd"/><circle cx="30" cy="30" r="10" fill="none" stroke="#ddd"/><circle cx="50" cy="30" r="10" fill="none" stroke="#ddd"/><line x1="30" y1="40" x2="30" y2="60" stroke="#ddd"/><line x1="50" y1="40" x2="50" y2="60" stroke="#ddd"/><rect x="20" y="60" width="40" height="8" fill="none" stroke="#ddd"/></svg>`,
+    `<svg viewBox="0 0 80 80"><rect x="4" y="4" width="72" height="72" fill="none" stroke="#ddd"/><rect x="10" y="10" width="25" height="25" fill="none" stroke="#ddd"/><rect x="45" y="10" width="25" height="25" fill="none" stroke="#ddd"/><rect x="10" y="45" width="25" height="25" fill="none" stroke="#ddd"/><rect x="45" y="45" width="25" height="25" fill="none" stroke="#ddd"/></svg>`,
+    `<svg viewBox="0 0 80 80"><rect x="4" y="4" width="72" height="72" fill="none" stroke="#ddd"/><line x1="20" y1="10" x2="20" y2="70" stroke="#ddd" stroke-width="2"/><line x1="40" y1="10" x2="40" y2="70" stroke="#ddd" stroke-width="2"/><line x1="60" y1="10" x2="60" y2="70" stroke="#ddd" stroke-width="2"/><line x1="10" y1="35" x2="70" y2="35" stroke="#ddd"/><line x1="10" y1="55" x2="70" y2="55" stroke="#ddd"/></svg>`,
+    `<svg viewBox="0 0 80 80"><rect x="4" y="4" width="72" height="72" fill="none" stroke="#ddd"/><rect x="10" y="12" width="60" height="6" fill="#f0f0f0" stroke="#ddd"/><rect x="10" y="22" width="60" height="4" fill="none" stroke="#eee"/><rect x="10" y="28" width="60" height="4" fill="none" stroke="#eee"/><rect x="10" y="34" width="60" height="4" fill="none" stroke="#eee"/><rect x="10" y="40" width="60" height="4" fill="none" stroke="#eee"/><rect x="10" y="46" width="60" height="4" fill="none" stroke="#eee"/><rect x="10" y="52" width="60" height="4" fill="none" stroke="#eee"/></svg>`,
+    `<svg viewBox="0 0 80 80"><rect x="4" y="4" width="72" height="72" fill="none" stroke="#ddd"/><path d="M10 55 Q25 20 40 40 Q55 60 70 25" fill="none" stroke="#ddd" stroke-width="1.5"/><circle cx="10" cy="55" r="3" fill="#eee"/><circle cx="70" cy="25" r="3" fill="#eee"/></svg>`
+  ];
+  return variants[i % variants.length];
+}
+
+function togglePage(i) {
+  pages[i].selected = !pages[i].selected;
+  pages[i].included = pages[i].selected;
+  render();
+}
+
+function toggleSelectAll() {
+  const v = document.getElementById('selectAll').checked;
+  pages.forEach(p => { p.selected = v; p.included = v; });
+  render();
+}
+
+function excludeSelected() {
+  let c = 0;
+  pages.forEach(p => { if (p.selected && p.included) { p.included = false; p.selected = false; c++; } });
+  if (!c) return toast('No pages selected');
+  render();
+  toast(`Excluded ${c} pages`);
+}
+
+function restoreExcluded() {
+  let c = 0;
+  pages.forEach(p => { if (!p.included) { p.included = true; p.selected = true; c++; } });
+  if (!c) return toast('Nothing to restore');
+  render();
+  toast(`Restored ${c} pages`);
+}
+
+function bulkDiscipline(val) {
+  let c = 0;
+  pages.forEach(p => { if (p.selected && p.included) { p.discipline = val; c++; } });
+  render();
+  toast(`Assigned ${c} pages to ${val}`);
+}
+
+function bulkProject(val) {
+  let c = 0;
+  pages.forEach(p => { if (p.selected && p.included) { p.project = val; c++; } });
+  render();
+  toast(`Assigned ${c} pages to ${val}`);
+}
+
+function updateCounts() {
+  const incl = pages.filter(p=>p.included);
+  const sel = incl.filter(p=>p.selected);
+  document.getElementById('totalCount').textContent = pages.length;
+  document.getElementById('inclCount').textContent = incl.length;
+  document.getElementById('exclCount').textContent = pages.length - incl.length;
+  document.getElementById('selectedCount').textContent = sel.length + ' selected';
+  document.getElementById('archCount').textContent = incl.filter(p=>p.discipline==='Architectural').length;
+  document.getElementById('structCount').textContent = incl.filter(p=>p.discipline==='Structural').length;
+  document.getElementById('elecCount').textContent = incl.filter(p=>p.discipline==='Electrical').length;
+  document.getElementById('mechCount').textContent = incl.filter(p=>p.discipline==='Mechanical').length;
+  const una = incl.filter(p=>!p.discipline).length;
+  document.getElementById('unaCount').textContent = una;
+  document.getElementById('unassignedWarn').style.display = una > 0 ? 'inline' : 'none';
+  document.getElementById('createBtn').textContent = `Create ${incl.length} Plans`;
+  document.getElementById('createBtn2').textContent = `Create ${incl.length} Plans`;
+}
+
+let modalIdx = 0;
+function openModal(i) {
+  modalIdx = i;
+  updateModal();
+  document.getElementById('viewerModal').classList.add('slds-fade-in-open');
+  document.getElementById('modalBackdrop').classList.add('slds-backdrop_open');
+}
+function closeModal() {
+  document.getElementById('viewerModal').classList.remove('slds-fade-in-open');
+  document.getElementById('modalBackdrop').classList.remove('slds-backdrop_open');
+}
+function updateModal() {
+  document.getElementById('modal-heading-01').textContent = pages[modalIdx].title;
+  document.getElementById('modalDrawLabel').textContent = pages[modalIdx].docNum;
+  document.getElementById('modalInfo').textContent = `Page ${modalIdx+1} of ${pages.length} | ${pages[modalIdx].discipline || 'Unassigned'} | ${pages[modalIdx].project || 'No Project'}`;
+}
+function modalNav(dir) {
+  modalIdx = Math.max(0, Math.min(pages.length-1, modalIdx+dir));
+  updateModal();
+}
+
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('viewerModal').classList.contains('slds-fade-in-open')) return;
+  if (e.key === 'ArrowLeft') modalNav(-1);
+  if (e.key === 'ArrowRight') modalNav(1);
+  if (e.key === 'Escape') closeModal();
+});
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toastEl');
+  document.getElementById('toastMsg').textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// Mobile preview
+const MOBILE_PREVIEW_COUNT = 2; // show first N cards per discipline, then "View All"
+const mobileCollapsed = {};
+
+function showMobilePreview() {
+  const incl = pages.filter(p => p.included);
+  if (!incl.length) return toast('No pages to create');
+
+  // Reset collapsed state
+  disciplines.forEach(d => { mobileCollapsed[d] = false; });
+  mobileCollapsed['Unassigned'] = false;
+
+  // Populate project filter
+  const projFilter = document.getElementById('mobileProjectFilter');
+  const uniqueProjects = [...new Set(incl.map(p => p.project).filter(Boolean))];
+  projFilter.innerHTML = '<option value="all">All Projects</option>' +
+    uniqueProjects.map(pr => `<option value="${pr}">${pr}</option>`).join('');
+
+  document.getElementById('mobileSearch').value = '';
+  document.getElementById('mobileDisciplineFilter').value = 'all';
+  document.getElementById('mobileFilterPanel').style.display = 'none';
+  document.getElementById('mobileFilterBadge').style.display = 'none';
+  document.getElementById('mobileFilterBadge').textContent = '0';
+  document.getElementById('mobileOverlay').classList.add('active');
+  renderMobilePlans();
+}
+
+function closeMobilePreview() {
+  document.getElementById('mobileOverlay').classList.remove('active');
+}
+
+function toggleMobileSection(disc) {
+  mobileCollapsed[disc] = !mobileCollapsed[disc];
+  renderMobilePlans();
+}
+
+function toggleMobileFilterPanel() {
+  const panel = document.getElementById('mobileFilterPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function updateMobileFilterBadge() {
+  let count = 0;
+  if (document.getElementById('mobileProjectFilter').value !== 'all') count++;
+  if (document.getElementById('mobileDisciplineFilter').value !== 'all') count++;
+  const badge = document.getElementById('mobileFilterBadge');
+  badge.textContent = count;
+  badge.style.display = count > 0 ? 'flex' : 'none';
+}
+
+function renderMobilePlans() {
+  const searchVal = (document.getElementById('mobileSearch').value || '').toLowerCase();
+  const projVal = document.getElementById('mobileProjectFilter').value;
+  const discVal = document.getElementById('mobileDisciplineFilter').value;
+
+  let plans = pages.filter(p => p.included);
+  if (projVal !== 'all') plans = plans.filter(p => p.project === projVal);
+  if (discVal !== 'all') plans = plans.filter(p => (p.discipline || '') === discVal);
+  if (searchVal) {
+    plans = plans.filter(p =>
+      p.title.toLowerCase().includes(searchVal) ||
+      p.docNum.toLowerCase().includes(searchVal) ||
+      (p.discipline || '').toLowerCase().includes(searchVal) ||
+      (p.project || '').toLowerCase().includes(searchVal)
+    );
+  }
+
+  // Group by discipline
+  const groups = {};
+  const discOrder = [...disciplines, 'Unassigned'];
+  discOrder.forEach(d => { groups[d] = []; });
+  plans.forEach(p => {
+    const key = p.discipline || 'Unassigned';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(p);
+  });
+
+  const list = document.getElementById('mobilePlansList');
+  const thumbSvgs = [
+    `<svg viewBox="0 0 60 60"><rect x="3" y="3" width="54" height="54" fill="none" stroke="#ccc"/><line x1="3" y1="14" x2="57" y2="14" stroke="#ddd"/><rect x="6" y="18" width="22" height="10" fill="none" stroke="#ddd"/><rect x="32" y="18" width="22" height="10" fill="none" stroke="#ddd"/><rect x="6" y="34" width="48" height="16" fill="none" stroke="#ddd"/></svg>`,
+    `<svg viewBox="0 0 60 60"><rect x="3" y="3" width="54" height="54" fill="none" stroke="#ccc"/><rect x="8" y="8" width="20" height="20" fill="none" stroke="#ddd"/><rect x="32" y="8" width="20" height="20" fill="none" stroke="#ddd"/><rect x="8" y="34" width="44" height="16" fill="none" stroke="#ddd"/></svg>`,
+    `<svg viewBox="0 0 60 60"><rect x="3" y="3" width="54" height="54" fill="none" stroke="#ccc"/><line x1="20" y1="8" x2="20" y2="52" stroke="#ddd"/><line x1="40" y1="8" x2="40" y2="52" stroke="#ddd"/><line x1="8" y1="28" x2="52" y2="28" stroke="#ddd"/><line x1="8" y1="42" x2="52" y2="42" stroke="#ddd"/></svg>`,
+  ];
+
+  let html = '';
+  let totalShown = 0;
+
+  discOrder.forEach(disc => {
+    const items = groups[disc];
+    if (!items || items.length === 0) return;
+    totalShown += items.length;
+
+    const isCollapsed = mobileCollapsed[disc] || false;
+    const chevronCls = isCollapsed ? 'mobile-disc-chevron collapsed' : 'mobile-disc-chevron';
+
+    html += `<div class="mobile-disc-section">
+      <div class="mobile-disc-header" onclick="toggleMobileSection('${disc}')">
+        <span class="${chevronCls}">&#9660;</span>
+        <span class="mobile-disc-title">${disc} <span class="mobile-disc-count">(${items.length})</span></span>
+        <button class="mobile-disc-menu" onclick="event.stopPropagation();">&#8942;</button>
+      </div>`;
+
+    if (!isCollapsed) {
+      const visibleItems = items.slice(0, MOBILE_PREVIEW_COUNT);
+      html += `<div class="mobile-disc-body">`;
+
+      visibleItems.forEach((p, idx) => {
+        const today = new Date();
+        const lastMod = new Date(today.getFullYear(), today.getMonth(), today.getDate() - Math.floor(Math.random()*30));
+        const modStr = lastMod.toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'2-digit'});
+        const thumb = thumbSvgs[idx % thumbSvgs.length];
+        const badgeCls = p.discipline || 'Unassigned';
+
+        html += `<div class="mobile-plan-card">
+          <div class="mobile-plan-thumb">${thumb}</div>
+          <div class="mobile-plan-info">
+            <div class="mobile-plan-title">${p.docNum}: ${p.title.split(': ').slice(1).join(': ') || p.title}</div>
+            <div class="mobile-plan-detail">Revision: 2</div>
+            <div class="mobile-plan-detail">Last modified: ${modStr}</div>
+            <div class="mobile-plan-detail">Type: Plan</div>
+            <span class="mobile-plan-badge ${badgeCls}">${disc}</span>
+          </div>
+          <button class="mobile-plan-menu">&#8942;</button>
+        </div>`;
+      });
+
+      html += `</div>`;
+
+      if (items.length > MOBILE_PREVIEW_COUNT) {
+        html += `<div class="mobile-view-all" onclick="toast('Viewing all ${items.length} ${disc} plans')">View All</div>`;
+      }
+    }
+
+    html += `</div>`;
+  });
+
+  list.innerHTML = html;
+  document.getElementById('mobileRecordCount').textContent = totalShown;
+}
+
+// Close mobile on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('mobileOverlay').classList.contains('active')) {
+    closeMobilePreview();
+  }
+});
+
+// Close mobile on backdrop click
+document.getElementById('mobileOverlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeMobilePreview();
+});
+
+render();
+</script>
+</body>
+</html>
